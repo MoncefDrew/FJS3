@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from ..core.io_utils import (
     SchedulerConfig,
@@ -20,7 +20,15 @@ from .components.scenario_editor import (
     open_create_scenarios_dialog,
     open_edit_scenario_dialog,
 )
-from .components.result_viewer import configure_log_tags, render_logs_animated, render_diagram
+from .components.result_viewer import (
+    configure_log_widget,
+    on_diagram_canvas_configure,
+    render_diagram,
+    render_logs,
+    set_diagram_zoom,
+    zoom_diagram_in,
+    zoom_diagram_out,
+)
 from .components.stats_viewer import render_stats
 from .components.profile_dialogs import (
     open_save_profile_dialog,
@@ -57,7 +65,10 @@ class SchedulerGUI(tk.Tk):
         # ── Internal refs kept alive to prevent GC ──
         self.diagram_image = None
         self._stats_image_ref = None
-        self._log_after_id = None
+        self._diagram_current_scenario: Optional[Scenario] = None
+        self._diagram_zoom: Union[str, float] = "fit"
+        self.diagram_canvas_item = None
+        self._diagram_configure_after = None
 
         self._build_layout()
 
@@ -187,20 +198,58 @@ class SchedulerGUI(tk.Tk):
         # Diagram area
         diagram_container = ttk.Frame(result_pane)
         diagram_container.columnconfigure(0, weight=1)
-        diagram_container.rowconfigure(0, weight=1)
+        diagram_container.rowconfigure(1, weight=1)
         self.diagram_frame = diagram_container
-        self.diagram_label: Optional[tk.Label] = None
+
+        toolbar = ttk.Frame(diagram_container)
+        toolbar.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
+        ttk.Label(toolbar, text="Gantt zoom:").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(
+            toolbar,
+            text="Fit to window",
+            command=lambda: set_diagram_zoom(self, "fit"),
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            toolbar,
+            text="100%",
+            command=lambda: set_diagram_zoom(self, 1.0),
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="−", width=3, command=lambda: zoom_diagram_out(self)).pack(
+            side=tk.LEFT, padx=2
+        )
+        ttk.Button(toolbar, text="+", width=3, command=lambda: zoom_diagram_in(self)).pack(
+            side=tk.LEFT, padx=2
+        )
+        self.diagram_zoom_label = ttk.Label(toolbar, text="Fit")
+        self.diagram_zoom_label.pack(side=tk.LEFT, padx=(8, 0))
+
+        canvas_frame = ttk.Frame(diagram_container)
+        canvas_frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
+        canvas_frame.columnconfigure(0, weight=1)
+        canvas_frame.rowconfigure(0, weight=1)
+
+        self.diagram_canvas = tk.Canvas(canvas_frame, highlightthickness=0, bg="#f8fafc")
+        v_scroll = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.diagram_canvas.yview)
+        h_scroll = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.diagram_canvas.xview)
+        self.diagram_canvas.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
+        self.diagram_canvas.grid(row=0, column=0, sticky="nsew")
+        v_scroll.grid(row=0, column=1, sticky="ns")
+        h_scroll.grid(row=1, column=0, sticky="ew")
+        self.diagram_canvas.bind(
+            "<Configure>",
+            lambda event: on_diagram_canvas_configure(self, event),
+        )
 
         # Log area
         log_frame = ttk.Frame(result_pane)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        self.log_text = tk.Text(log_frame, wrap="word", height=18, font=("TkDefaultFont", 12))
+        self.log_text = tk.Text(log_frame, wrap="word", height=18)
         self.log_text.grid(row=0, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=scrollbar.set)
-        configure_log_tags(self.log_text)
+        configure_log_widget(self.log_text)
 
         result_pane.add(diagram_container, weight=3)
         result_pane.add(log_frame, weight=2)
@@ -378,7 +427,7 @@ class SchedulerGUI(tk.Tk):
             messagebox.showinfo("No schedule", "Run the scenario first.")
             return
         render_diagram(self, scenario)
-        render_logs_animated(self, scenario.logs or "No log available for this scenario.")
+        render_logs(self, scenario.logs or "No log available for this scenario.")
         render_stats(self, scenario)
         self.right_notebook.select(1)  # Switch to Result tab
 

@@ -18,6 +18,7 @@ def build_resource_tasks(
 def build_gantt_figure(
     schedule: List[Tuple[int, int, float, float]],
     title: str = "Gantt Chart - Optimal Schedule",
+    figsize: Tuple[float, float] | None = None,
 ) -> Figure:
     if not schedule:
         return Figure()
@@ -42,8 +43,17 @@ def build_gantt_figure(
         resource_boundaries.append(y_pos - 0.5)
         y_pos += 0.8
 
-    fig = Figure(figsize=(14, max(6, len(y_labels) * 0.6)))
+    num_rows = max(len(y_labels), 1)
+    if figsize is None:
+        figsize = (14.0, max(6.0, num_rows * 0.6))
+
+    fig = Figure(figsize=figsize)
     ax = fig.add_subplot(111)
+
+    label_font = max(6, min(10, int(figsize[1] * 72 / num_rows / 2.2)))
+    title_font = max(10, min(14, label_font + 3))
+    axis_font = max(8, min(12, label_font + 1))
+    bar_height = max(0.35, min(0.6, figsize[1] / num_rows * 0.55))
 
     colors = [
         "#3498db",
@@ -64,7 +74,7 @@ def build_gantt_figure(
             y_position,
             duration,
             left=start,
-            height=0.6,
+            height=bar_height,
             color=color,
             edgecolor="black",
             linewidth=0.7,
@@ -79,7 +89,7 @@ def build_gantt_figure(
             va="center",
             fontweight="bold",
             color="white",
-            fontsize=10,
+            fontsize=label_font,
         )
 
     for boundary in resource_boundaries[:-1]:
@@ -87,10 +97,10 @@ def build_gantt_figure(
 
     y_tick_positions = [y_positions[label] for label in y_labels]
     ax.set_yticks(y_tick_positions)
-    ax.set_yticklabels(y_labels, fontsize=10)
-    ax.set_xlabel("Time", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Resources (with Jobs)", fontsize=12, fontweight="bold")
-    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_yticklabels(y_labels, fontsize=label_font)
+    ax.set_xlabel("Time", fontsize=axis_font, fontweight="bold")
+    ax.set_ylabel("Resources (with Jobs)", fontsize=axis_font, fontweight="bold")
+    ax.set_title(title, fontsize=title_font, fontweight="bold")
     ax.grid(axis="x", alpha=0.3, linestyle=":", linewidth=0.8)
 
     fig.tight_layout()
